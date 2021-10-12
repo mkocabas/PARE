@@ -20,6 +20,7 @@ def main(hparams):
     logger.info(torch.cuda.get_device_properties(device))
     logger.info(f'Hyperparameters: \n {hparams}')
 
+    hparams.DATASET.NUM_WORKERS = -1  # set this to be compatible with other machines
     model = PARETrainer(hparams=hparams).to(device)
 
     if hparams.TRAINING.PRETRAINED_LIT is not None:
