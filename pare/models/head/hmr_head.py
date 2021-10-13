@@ -1,3 +1,19 @@
+# -*- coding: utf-8 -*-
+
+# Max-Planck-Gesellschaft zur Förderung der Wissenschaften e.V. (MPG) is
+# holder of all proprietary rights on this computer program.
+# You can only use this computer program if you have closed
+# a license agreement with MPG or you get the right to use the computer
+# program from someone who is authorized to grant you that right.
+# Any use of the computer program without a valid license is prohibited and
+# liable to prosecution.
+#
+# Copyright©2019 Max-Planck-Gesellschaft zur Förderung
+# der Wissenschaften e.V. (MPG). acting on behalf of its Max Planck Institute
+# for Intelligent Systems. All rights reserved.
+#
+# Contact: ps-license@tuebingen.mpg.de
+
 import math
 import torch
 import numpy as np
@@ -183,106 +199,5 @@ class HMRHead(nn.Module):
 
         return output
 
-
-from ..layers.contrib import adf
-
 def keep_variance(x, min_variance):
     return x + min_variance
-
-
-class hmr_head_adf_dropout(nn.Module):
-    def __init__(
-            self,
-            num_input_features,
-            smpl_mean_params=SMPL_MEAN_PARAMS,
-            p=0.2,
-            min_variance=1e-3,
-            noise_variance=1e-3,
-    ):
-        super(hmr_head_adf_dropout, self).__init__()
-
-        self.keep_variance_fn = lambda x: keep_variance(x, min_variance=min_variance)
-        self._noise_variance = noise_variance
-
-        npose = 24 * 6
-        self.avgpool = adf.AvgPool2d(keep_variance_fn=self.keep_variance_fn) # nn.AvgPool2d(7, stride=1)
-        self.fc1 = adf.Linear(num_input_features + npose + 13, 1024, keep_variance_fn=self.keep_variance_fn) # nn.Linear(num_input_features + npose + 13, 1024)
-        self.drop1 = adf.Dropout(p=p, keep_variance_fn=self.keep_variance_fn) # nn.Dropout()
-        self.fc2 = adf.Linear(1024, 1024, keep_variance_fn=self.keep_variance_fn) # nn.Linear(1024, 1024)
-        self.drop2 = adf.Dropout(p=p, keep_variance_fn=self.keep_variance_fn) # nn.Dropout()
-        self.decpose = adf.Linear(1024, npose, keep_variance_fn=self.keep_variance_fn) # nn.Linear(1024, npose)
-        self.decshape = adf.Linear(1024, 10, keep_variance_fn=self.keep_variance_fn) # nn.Linear(1024, 10)
-        self.deccam = adf.Linear(1024, 3, keep_variance_fn=self.keep_variance_fn) # nn.Linear(1024, 3)
-        nn.init.xavier_uniform_(self.decpose.weight, gain=0.01)
-        nn.init.xavier_uniform_(self.decshape.weight, gain=0.01)
-        nn.init.xavier_uniform_(self.deccam.weight, gain=0.01)
-
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-        mean_params = np.load(smpl_mean_params)
-        init_pose = torch.from_numpy(mean_params['pose'][:]).unsqueeze(0)
-        init_shape = torch.from_numpy(mean_params['shape'][:].astype('float32')).unsqueeze(0)
-        init_cam = torch.from_numpy(mean_params['cam']).unsqueeze(0)
-        self.register_buffer('init_pose', init_pose)
-        self.register_buffer('init_shape', init_shape)
-        self.register_buffer('init_cam', init_cam)
-
-    def forward(
-            self,
-            features,
-            init_pose=None,
-            init_shape=None,
-            init_cam=None,
-            n_iter=3
-    ):
-        batch_size = features[0].shape[0]
-
-        if init_pose is None:
-            init_pose = self.init_pose.expand(batch_size, -1)
-        if init_shape is None:
-            init_shape = self.init_shape.expand(batch_size, -1)
-        if init_cam is None:
-            init_cam = self.init_cam.expand(batch_size, -1)
-
-        # inputs_mean = features
-        # inputs_variance = torch.zeros_like(inputs_mean) + self._noise_variance
-        # x = feat inputs_mean, inputs_variance
-        xf = self.avgpool(*features, 7)
-        xf_mean = xf[0].view(xf[0].size(0), -1)
-        xf_var = xf[1].view(xf[1].size(0), -1)
-        xf = xf_mean, xf_var
-
-        pred_pose = init_pose, torch.zeros_like(init_pose) + self._noise_variance
-        pred_shape = init_shape, torch.zeros_like(init_shape) + self._noise_variance
-        pred_cam = init_cam, torch.zeros_like(init_cam) + self._noise_variance
-        for i in range(n_iter):
-            xc_mean = torch.cat([xf[0], pred_pose[0], pred_shape[0], pred_cam[0]], 1)
-            xc_var = torch.cat([xf[1], pred_pose[1], pred_shape[1], pred_cam[1]], 1) # torch.zeros_like(xc_mean) + self._noise_variance
-            xc = xc_mean, xc_var  # torch.zeros_like(xc) + self._noise_variance
-            xc = self.fc1(*xc)
-            xc = self.drop1(*xc)
-            xc = self.fc2(*xc)
-            xc = self.drop2(*xc)
-            pred_pose = self.decpose(*xc)[0] + pred_pose[0], self.decpose(*xc)[1] + pred_pose[1]
-            pred_shape = self.decshape(*xc)[0] + pred_shape[0], self.decshape(*xc)[1] + pred_shape[1]
-            pred_cam = self.deccam(*xc)[0] + pred_cam[0], self.deccam(*xc)[1] + pred_cam[1]
-
-        pred_rotmat = rot6d_to_rotmat(pred_pose[0]).view(batch_size, 24, 3, 3)
-        pred_pose_var = pred_pose[1].reshape(-1, 24, 6)
-
-        output = {
-            'pred_pose': pred_rotmat,
-            'pred_cam': pred_cam[0],
-            'pred_shape': pred_shape[0],
-            'pred_pose_var': pred_pose_var,
-            'pred_cam_var': pred_cam[1],
-            'pred_shape_var': pred_shape[1],
-        }
-
-        return output

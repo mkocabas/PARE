@@ -13,6 +13,7 @@
 # for Intelligent Systems. All rights reserved.
 #
 # Contact: ps-license@tuebingen.mpg.de
+
 import os
 os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
