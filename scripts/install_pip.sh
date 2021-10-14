@@ -7,4 +7,5 @@ echo "Activating virtual environment"
 
 source $PWD/pare-env/bin/activate
 
+sudo apt-get install libturbojpeg
 $PWD/pare-env/bin/pip install -r requirements.txt
