@@ -16,6 +16,7 @@
 
 import os
 import cv2
+import copy
 import time
 import torch
 import joblib
@@ -30,6 +31,8 @@ from torchvision.models.detection import keypointrcnn_resnet50_fpn
 
 from ..models import PARE, HMR
 from .config import update_hparams
+from ..utils.kp_utils import convert_kps
+from ..smplify.run import smplify_runner
 from ..utils.vibe_renderer import Renderer
 from ..utils.pose_tracker import run_posetracker
 from ..utils.train_utils import load_pretrained_model
@@ -41,6 +44,7 @@ from ..utils.demo_utils import (
     prepare_rendering_results,
 )
 from ..utils.vibe_image_utils import get_single_image_crop_demo
+from ..utils.geometry import convert_weak_perspective_to_perspective
 
 
 MIN_NUM_FRAMES = 0
@@ -154,13 +158,21 @@ class PARETester:
         return bboxes
 
     @torch.no_grad()
-    def run_on_image_folder(self, image_folder, detections, output_path, output_img_folder, bbox_scale=1.0):
+    def run_on_image_folder(self, image_folder, detections, output_path,
+                            output_img_folder, bbox_scale=1.0, run_smplify=True):
         image_file_names = [
             os.path.join(image_folder, x)
             for x in os.listdir(image_folder)
             if x.endswith('.png') or x.endswith('.jpg') or x.endswith('.jpeg')
         ]
         image_file_names = sorted(image_file_names)
+        joints2d = None
+        if run_smplify:
+            from ..utils.mmpose import run_mmpose_with_dets
+            logger.info('--> Running MMPose')
+            joints2d = run_mmpose_with_dets(image_file_names, detections.copy(),
+                                            show_results=False,
+                                            results_folder=os.path.join(output_path, 'mmpose_results'))
 
         for img_idx, img_fname in enumerate(image_file_names):
             dets = detections[img_idx]
@@ -175,21 +187,84 @@ class PARETester:
             inp_images = torch.zeros(len(dets), 3, self.model_cfg.DATASET.IMG_RES,
                                      self.model_cfg.DATASET.IMG_RES, device=self.device, dtype=torch.float)
 
+            norm_joints2d = []
+
             for det_idx, det in enumerate(dets):
                 bbox = det
                 norm_img, raw_img, kp_2d = get_single_image_crop_demo(
                     img,
                     bbox,
-                    kp_2d=None,
+                    kp_2d=None if joints2d is None else copy.deepcopy(joints2d[img_idx]),
                     scale=bbox_scale,
                     crop_size=self.model_cfg.DATASET.IMG_RES
                 )
                 inp_images[det_idx] = norm_img.float().to(self.device)
+                if joints2d is not None:
+                    norm_joints2d.append(kp_2d[None])
+                ######### DEBUG #########
+                if run_smplify:
+                    import ipdb; ipdb.set_trace()
+                    from ..utils.vis_utils import draw_skeleton
+                    import skimage.io as io
+                    kps = convert_kps(kp_2d[None][:, :23], src='mmpose', dst='spin')
+                    img_w_kps = draw_skeleton(raw_img, kps[0], dataset='spin', unnormalize=False)
+                    io.imsave(os.path.join(output_path, 'mmpose_results', img_fname.split('/')[-1]), img_w_kps)
+                ######### DEBUG #########
             try:
                 output = self.model(inp_images)
             except Exception as e:
                 import IPython; IPython.embed(); exit()
+            # import matplotlib.pyplot as plt
+            # plt.imshow(raw_img); plt.show()
+            # ==========================================================================================
+            if run_smplify:
+                norm_joints2d = np.concatenate(norm_joints2d, axis=0)
+                norm_joints2d = convert_kps(norm_joints2d[:, :23], src='mmpose', dst='spin')
+                norm_joints2d = torch.from_numpy(norm_joints2d).float().to(self.device)
 
+                # from ..utils.vibe_image_utils import normalize_2d_kp
+                # norm_joints2d = normalize_2d_kp(norm_joints2d)
+
+                # import matplotlib.pyplot as plt
+                # plt.imshow(raw_img); plt.show()
+                # import ipdb; ipdb.set_trace()
+
+                # Run Temporal SMPLify
+                update, new_opt_vertices, new_opt_cam, new_opt_pose, new_opt_betas, \
+                new_opt_joints3d, new_opt_joint_loss, opt_joint_loss = smplify_runner(
+                    pred_rotmat=output['pred_pose'],
+                    pred_betas=output['pred_shape'],
+                    pred_cam=output['pred_cam'],
+                    j2d=norm_joints2d,
+                    device=self.device,
+                    batch_size=norm_joints2d.shape[0],
+                    pose2aa=True,
+                    is_video=False,
+                )
+
+                # smpl_vertices torch.Size([1, 6890, 3])
+                # smpl_joints3d torch.Size([1, 49, 3])
+                # smpl_joints2d torch.Size([1, 49, 2])
+                # pred_cam_t torch.Size([1, 3])
+                # pred_segm_mask torch.Size([1, 25, 56, 56])
+                # pred_pose torch.Size([1, 24, 3, 3])
+                # pred_cam torch.Size([1, 3])
+                # pred_shape torch.Size([1, 10])
+
+                for k, v in output.items():
+                    output[k] = v.cpu()
+                # update the parameters after refinement
+                print(f'Update ratio after SMPLify: {update.sum()} / {norm_joints2d.shape[0]}')
+
+                output['smpl_vertices'][update] = new_opt_vertices[update]
+                output['smpl_joints3d'][update] = new_opt_joints3d[update]
+                output['pred_cam'][update] = new_opt_cam[update]
+                output['pred_pose'][update] = new_opt_pose[update]
+                output['pred_shape'][update] = new_opt_betas[update]
+                output['pred_cam_t'][update] = convert_weak_perspective_to_perspective(new_opt_cam)[update]
+
+
+            # ==========================================================================================
             for k,v in output.items():
                 output[k] = v.cpu().numpy()
 

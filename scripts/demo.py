@@ -143,7 +143,8 @@ def main(args):
         total_time = time.time()
         detections = tester.run_detector(input_image_folder)
         pare_time = time.time()
-        tester.run_on_image_folder(input_image_folder, detections, output_path, output_img_folder)
+        tester.run_on_image_folder(input_image_folder, detections, output_path, output_img_folder,
+                                   run_smplify=args.smplify)
         end = time.time()
 
         fps = num_frames / (end - pare_time)
@@ -232,6 +233,9 @@ if __name__ == '__main__':
 
     parser.add_argument('--save_obj', action='store_true',
                         help='save results as .obj files.')
+
+    parser.add_argument('--smplify', action='store_true',
+                        help='run MMPose and smplify to refine poses further')
 
     args = parser.parse_args()
 

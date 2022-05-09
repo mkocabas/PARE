@@ -34,6 +34,12 @@ from flatten_dict import flatten, unflatten
 DATASET_NPZ_PATH = 'data/dataset_extras'
 DATASET_LMDB_PATH = 'data/lmdb'
 
+MMPOSE_PATH = '/is/cluster/work/mkocabas/projects/mmpose'
+MMDET_PATH = '/is/cluster/work/mkocabas/projects/mmdetection'
+MMPOSE_CFG = os.path.join(MMPOSE_PATH, 'configs/top_down/hrnet/coco-wholebody/hrnet_w48_coco_wholebody_256x192.py')
+MMPOSE_CKPT = os.path.join(MMPOSE_PATH, 'checkpoints/hrnet_w48_coco_wholebody_256x192-643e18cb_20200922.pth')
+MMDET_CFG = os.path.join(MMDET_PATH, 'configs/faster_rcnn/faster_rcnn_r50_fpn_1x_coco.py')
+MMDET_CKPT = os.path.join(MMDET_PATH, 'checkpoints/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth')
 
 PW3D_ROOT = 'data/dataset_folders/3dpw'
 OH3D_ROOT = 'data/dataset_folders/3doh'
