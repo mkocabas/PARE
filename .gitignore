@@ -1,5 +1,7 @@
 .idea/
+logs/
 data
+images/
 __pycache__/
 vibe-env/
 output/
