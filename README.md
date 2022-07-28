@@ -1,6 +1,6 @@
 # PARE: Part Attention Regressor for 3D Human Body Estimation [ICCV 2021]
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)]()
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1bshGcKj2rFw_202nq3qC2gukv942D5Uq?usp=sharing)
 [![report](https://img.shields.io/badge/Project-Page-blue)](https://pare.is.tue.mpg.de/)
 [![report](https://img.shields.io/badge/ArXiv-Paper-red)](https://arxiv.org/abs/2104.08527)
 
