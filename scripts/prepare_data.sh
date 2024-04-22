@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-wget https://www.dropbox.com/s/aeulffqzb3zmh8x/pare-github-data.zip
+gdown 1qIq0CBBj-O6wVc9nJXG-JDEtWPzRQ4KC
 unzip pare-github-data.zip
 mkdir data/dataset_folders
 rm pare-github-data.zip
